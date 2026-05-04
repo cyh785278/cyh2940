@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>자유게시판 - 로봇소프트웨어과</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Firebase Legacy SDK (가장 높은 호환성) -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+</head>
+<body>
+    <header>
+        <div class="top-nav">
+            <div class="logo"><img src="https://www.dongyang.ac.kr/sites/dmu/images/common/logo_b.svg" alt="동양미래대학교"></div>
+            <ul class="main-menu">
+                <li><a href="index.html">대학소개</a></li>
+                <li><a href="#">입학</a></li>
+                <li><a href="#">학부·학과</a></li>
+                <li><a href="#">학사안내</a></li>
+                <li><a href="#">대학생활</a></li>
+            </ul>
+        </div>
+        <div class="dept-header">
+            <div class="dept-nav-container">
+                <div class="dept-name">로봇소프트웨어과</div>
+                <ul class="dept-menu">
+                    <li><a href="index.html">학과소개</a></li>
+                    <li><a href="board.html" class="active">자유게시판</a></li>
+                </ul>
+            </div>
+        </div>
+    </header>
+
+    <div class="board-container">
+        <div class="board-header">
+            <h1>자유게시판</h1>
+            <button id="btnWrite" class="btn btn-submit">글쓰기</button>
+        </div>
+        <table class="post-table">
+            <thead>
+                <tr>
+                    <th style="width: 10%;">번호</th>
+                    <th>질문 제목</th>
+                    <th style="width: 15%;">작성자</th>
+                    <th style="width: 20%;">날짜</th>
+                </tr>
+            </thead>
+            <tbody id="postList"></tbody>
+        </table>
+    </div>
+
+    <!-- 글쓰기 모달 -->
+    <div id="writeModal" class="modal">
+        <div class="modal-content" style="max-width: 500px;">
+            <h2 id="modalTitle" style="color:var(--primary); margin-bottom:1.5rem;">질문 작성하기</h2>
+            <form id="postForm">
+                <input type="hidden" id="postId">
+                <div class="form-group"><label>질문 제목</label><input type="text" id="title" required placeholder="무엇이 궁금하신가요?"></div>
+                <div class="form-group"><label>작성자</label><input type="text" id="author" required placeholder="이름"></div>
+                <div class="form-group"><label>비밀번호 (수정/삭제용)</label><input type="password" id="password" required placeholder="비밀번호 4자리"></div>
+                <div class="form-group"><label>작성 일시</label><div id="currentTime" style="padding:10px; background:#f5f5f5; border-radius:5px; color:#666;"></div></div>
+                <div class="form-group"><label>질문 내용</label><textarea id="content" rows="8" required placeholder="상세 내용을 적어주세요"></textarea></div>
+                <div class="btn-group">
+                    <button type="button" onclick="closeModal('writeModal')" class="btn btn-cancel">취소</button>
+                    <button type="submit" class="btn btn-submit">저장하기</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 상세 보기/수정 확인용 모달 -->
+    <div id="viewModal" class="modal">
+        <div class="modal-content" style="max-width: 500px;">
+            <h2 id="viewTitle" style="color:var(--primary);">제목</h2>
+            <p id="viewMeta" style="color:#666; font-size:0.9rem; margin-bottom:1rem;"></p>
+            <div id="viewContent" style="padding:1.5rem 0; border-top:1px solid #eee; border-bottom:1px solid #eee; margin-bottom:1.5rem; white-space: pre-wrap;">내용</div>
+            <div class="btn-group">
+                <button onclick="checkPassword('edit')" class="btn btn-cancel">수정하기</button>
+                <button onclick="checkPassword('delete')" class="btn btn-cancel" style="color:red;">삭제하기</button>
+                <button onclick="closeModal('viewModal')" class="btn btn-submit">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 1. 파이어베이스 설정
+        const firebaseConfig = {
+            apiKey: "AIzaSyB7-t777M3xf1B7w5l_1Qw681MEo83aFkM",
+            authDomain: "sadflk-300b5.firebaseapp.com",
+            projectId: "sadflk-300b5",
+            storageBucket: "sadflk-300b5.firebasestorage.app",
+            messagingSenderId: "556932113051",
+            appId: "1:556932113051:web:d0f1e456017148e3ea9c3e"
+        };
+        
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        let currentId = null;
+        let currentPostData = null;
+
+        // 2. 모달 제어 함수
+        function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+        function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+        // 3. 글쓰기 버튼 클릭 이벤트
+        document.getElementById('btnWrite').onclick = function() {
+            document.getElementById('postForm').reset();
+            document.getElementById('postId').value = '';
+            document.getElementById('modalTitle').innerText = "질문 작성하기";
+            document.getElementById('currentTime').innerText = new Date().toLocaleString();
+            openModal('writeModal');
+        };
+
+        // 4. 저장 로직 (등록 및 수정)
+        document.getElementById('postForm').onsubmit = function(e) {
+            e.preventDefault();
+            const id = document.getElementById('postId').value;
+            const data = {
+                title: document.getElementById('title').value,
+                author: document.getElementById('author').value,
+                password: document.getElementById('password').value,
+                content: document.getElementById('content').value,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+
+            if (id) {
+                // 수정
+                db.collection("posts").doc(id).update(data).then(() => {
+                    alert("수정되었습니다.");
+                    closeModal('writeModal');
+                    loadPosts();
+                });
+            } else {
+                // 새 글
+                data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+                db.collection("posts").add(data).then(() => {
+                    alert("성공적으로 서버에 등록되었습니다!");
+                    closeModal('writeModal');
+                    loadPosts();
+                });
+            }
+        };
+
+        // 5. 글 클릭 시 상세 보기
+        function viewPost(id) {
+            currentId = id;
+            db.collection("posts").doc(id).get().then(doc => {
+                const post = doc.data();
+                currentPostData = post;
+                document.getElementById('viewTitle').innerText = post.title;
+                document.getElementById('viewMeta').innerText = `작성자: ${post.author} | 날짜: ${post.createdAt ? post.createdAt.toDate().toLocaleDateString() : '방금 전'}`;
+                document.getElementById('viewContent').innerText = post.content;
+                openModal('viewModal');
+            });
+        }
+
+        // 6. 비밀번호 확인 후 동작
+        function checkPassword(mode) {
+            const inputPw = prompt("비밀번호를 입력하세요.");
+            if (inputPw === currentPostData.password) {
+                if (mode === 'edit') {
+                    // 수정 모드로 전환
+                    closeModal('viewModal');
+                    document.getElementById('postId').value = currentId;
+                    document.getElementById('title').value = currentPostData.title;
+                    document.getElementById('author').value = currentPostData.author;
+                    document.getElementById('password').value = currentPostData.password;
+                    document.getElementById('content').value = currentPostData.content;
+                    document.getElementById('modalTitle').innerText = "질문 수정하기";
+                    openModal('writeModal');
+                } else if (mode === 'delete') {
+                    if (confirm("정말 삭제하시겠습니까?")) {
+                        db.collection("posts").doc(currentId).delete().then(() => {
+                            alert("삭제되었습니다.");
+                            closeModal('viewModal');
+                            loadPosts();
+                        });
+                    }
+                }
+            } else {
+                alert("비밀번호가 일치하지 않습니다.");
+            }
+        }
+
+        // 7. 목록 로드
+        function loadPosts() {
+            db.collection("posts").orderBy("createdAt", "desc").get().then((snapshot) => {
+                const list = document.getElementById('postList');
+                list.innerHTML = "";
+                let i = snapshot.size;
+                snapshot.forEach((doc) => {
+                    const post = doc.data();
+                    const date = post.createdAt ? post.createdAt.toDate().toLocaleDateString() : '방금 전';
+                    list.innerHTML += `<tr onclick="viewPost('${doc.id}')" style="cursor:pointer;">
+                        <td>${i--}</td>
+                        <td style="font-weight:500; color:var(--primary);">${post.title}</td>
+                        <td>${post.author}</td>
+                        <td>${date}</td>
+                    </tr>`;
+                });
+            });
+        }
+
+        loadPosts();
+    </script>
+</body>
+</html>
